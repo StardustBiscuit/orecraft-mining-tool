@@ -10,97 +10,70 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("⚒️ Orecraft Crafting & Resource Calculator")
-st.caption("Geoptimaliseerde calculator met interactief voorraadbeheer en dynamische hiërarchische doorrekening.")
+st.title("⚒️ Orecraft Miningtool ⚒️")
 
 # ---------------------------------------------------------
-# DATABASE DATA & STRICT TIER ORDERING
+# DATA LOADING FROM EXCEL (MATRIX STRUCTURE)
 # ---------------------------------------------------------
-ITEMS_ORDER = [
-    "Crude boots", "Crude axe", "Battle axe", "Mithril axe", "Saronite plate",
-    "Saronite boots", "Saronite Gloves", "Siege gloves", "Siege boots", "Siege plate",
-    "Solar shield", "Moon axe", "Assault gloves", "Assault boots", "Assault shield",
-    "Eternal gloves", "Eternal plate", "Eternal greaves", "Eclipse shield", "Eclipse axe",
-    "Blackrock hammer", "Lunarite gloves", "Eclipse hammer", "Eclipse plate",
-    "Savage gloves", "Savage shield", "Savage boots"
-]
+@st.cache_data
+def load_database_from_excel(file_path="orecraft_database.xlsx"):
+    df = pd.read_excel(file_path)
+    
+    # Standardize column names
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    
+    # Identify meta columns and ingredient columns
+    meta_cols = ["type", "naam", "zeldzaamheid"]
+    ingredient_cols = [c for c in df.columns if c not in meta_cols]
+    
+    items_order = []
+    items_db = {}
+    
+    bars_order = []
+    bars_db = {}
+    
+    ores_order = []
+    ores_db = {}
 
-BARS_ORDER = [
-    "Copper Bar", "Iron Bar", "Mithril Bar", "Saronite Bar", "Gold Bar",
-    "Cobalt Bar", "Thorium Bar", "Solar Bar", "Moonbar", "Obsidium Bar",
-    "Magnetite Bar", "Sinvyr Bar", "Platinum Bar", "Blackrock Bar", "Lunarite Bar",
-    "Leystone Bar", "Stardust Bar", "Aurorite Bar", "Empyrium Bar"
-]
+    types_map = {}
+    
+    for _, row in df.iterrows():
+        row_type = str(row["type"]).strip().lower()
+        item_name = str(row["naam"]).strip()
+        types_map[item_name.lower()] = row_type
+        
+        # Build recipe dictionary from matrix columns (>0)
+        recipe = {}
+        for ing_col in ingredient_cols:
+            val = row[ing_col]
+            if pd.notna(val) and isinstance(val, (int, float)) and val > 0:
+                recipe[ing_col] = int(val)
+                
+        if row_type == "item":
+            items_order.append(item_name)
+            items_db[item_name] = recipe
+            
+        elif row_type == "bar":
+            bars_order.append(item_name)
+            bars_db[item_name] = recipe
+            
+        elif row_type == "ore":
+            ores_order.append(item_name)
+            rarity = str(row["zeldzaamheid"]).strip() if pd.notna(row["zeldzaamheid"]) else "Onbekend"
+            ores_db[item_name] = rarity
 
-ORES_ORDER = [
-    "Copper Ore", "Iron Ore", "Mithril Ore", "Saronite Ore", "Gold Ore",
-    "Cobalt Ore", "Thorium Ore", "Leynir Ore", "Obsidium Ore", "Magnetite Ore",
-    "Sinvyr Ore", "Platinum Ore", "Blackrock Ore", "Lunarite Ore", "Leystone Ore",
-    "Stardust Ore", "Aurorite Ore", "Empyrium Ore"
-]
+    # Mapping for case-insensitive lookup
+    all_names = list(items_db.keys()) + list(bars_db.keys()) + list(ores_db.keys()) + [c.title() for c in ingredient_cols]
+    name_case_map = {k.lower(): k for k in all_names}
+    
+    return items_order, items_db, bars_order, bars_db, ores_order, ores_db, name_case_map, types_map
 
-ITEMS_DB = {
-    "Crude boots": "2x Copper Bar",
-    "Crude axe": "2x Iron Bar",
-    "Battle axe": "1x Crude axe + 4x Copper Bar",
-    "Mithril axe": "1x Battle axe + 2x Mithril Bar",
-    "Saronite plate": "6x Saronite Bar",
-    "Saronite boots": "4x Crude boots + 4x Gold Bar + 4x Saronite Bar",
-    "Saronite Gloves": "1x Saronite plate + 2x Cobalt Bar",
-    "Siege gloves": "1x Saronite Gloves + 2x Thorium Bar + 40x Iron Bar",
-    "Siege boots": "2x Saronite boots + 2x Thorium Bar + 4x Cobalt Bar",
-    "Siege plate": "2x Saronite plate + 2x Saronite boots + 10x Thorium Bar",
-    "Solar shield": "1x Siege gloves + 2x Saronite Gloves + 2x Solar Bar",
-    "Moon axe": "12x Battle axe + 8x Moonbar",
-    "Assault gloves": "1x Siege gloves + 2x Saronite plate + 2x Obsidium Bar",
-    "Assault boots": "2x Siege boots + 2x Magnetite Bar",
-    "Assault shield": "1x Assault gloves + 1x Solar shield + 8x Obsidium Bar",
-    "Eternal gloves": "6x Sinvyr Bar + 2x Solar shield",
-    "Eternal plate": "30x Obsidium Bar + 60x Gold Bar + 20x Magnetite Bar",
-    "Eternal greaves": "8x Saronite Gloves + 1x Assault boots",
-    "Eclipse shield": "60x Moonbar + 8x Platinum Bar",
-    "Eclipse axe": "200x Solar Bar + 80x Mithril axe",
-    "Blackrock hammer": "8x Blackrock Bar + 1x Moon axe",
-    "Lunarite gloves": "2x Lunarite Bar + 1x Eternal gloves",
-    "Eclipse hammer": "60x Gold Bar + 1x Eclipse axe",
-    "Eclipse plate": "1x Eclipse shield + 1x Eternal greaves + 10x Siege plate",
-    "Savage gloves": "1x Lunarite gloves + 120x Sinvyr Bar",
-    "Savage shield": "120x Leystone Bar + 20x Stardust Bar",
-    "Savage boots": "1x Savage gloves + 24x Assault boots"
-}
-
-BARS_DB = {
-    "Copper Bar": "400x Copper Ore",
-    "Iron Bar": "400x Iron Ore",
-    "Mithril Bar": "400x Mithril Ore",
-    "Saronite Bar": "400x Saronite Ore",
-    "Gold Bar": "400x Gold Ore",
-    "Cobalt Bar": "400x Cobalt Ore",
-    "Thorium Bar": "1200x Thorium Ore",
-    "Solar Bar": "6x Cobalt Bar + 12x Copper Bar",
-    "Moonbar": "12x Mithril Bar + 12x Iron Bar",
-    "Obsidium Bar": "1200x Obsidium Ore + 1x Thorium Bar",
-    "Magnetite Bar": "1200x Magnetite Ore + 200000x Copper Ore + 1x Solar Bar",
-    "Sinvyr Bar": "1200x Sinvyr Ore + 100000x Iron Ore + 1x Moonbar",
-    "Platinum Bar": "400x Platinum Ore + 1x Obsidium Bar",
-    "Blackrock Bar": "400x Blackrock Ore + 1x Magnetite Bar",
-    "Lunarite Bar": "400x Lunarite Ore + 1x Sinvyr Bar",
-    "Leystone Bar": "400x Leystone Ore + 1x Platinum Bar",
-    "Stardust Bar": "400x Stardust Ore + 1x Blackrock Bar",
-    "Aurorite Bar": "400x Aurorite Ore + 1x Lunarite Bar",
-    "Empyrium Bar": "400x Empyrium Ore + 1x Leystone Bar"
-}
-
-ORES_DB = {
-    "Copper Ore": "Common", "Iron Ore": "Common", "Mithril Ore": "Common",
-    "Saronite Ore": "Common", "Gold Ore": "Common", "Cobalt Ore": "Common",
-    "Thorium Ore": "Rare", "Leynir Ore": "Rare", "Obsidium Ore": "Rare",
-    "Magnetite Ore": "Rare", "Sinvyr Ore": "Precious", "Platinum Ore": "Precious",
-    "Blackrock Ore": "Precious", "Lunarite Ore": "Precious", "Leystone Ore": "Precious",
-    "Stardust Ore": "Mystic", "Aurorite Ore": "Mystic", "Empyrium Ore": "Mystic"
-}
-
-NAME_CASE_MAP = {k.lower(): k for k in list(ITEMS_DB.keys()) + list(BARS_DB.keys()) + list(ORES_DB.keys())}
+# Load database
+try:
+    ITEMS_ORDER, ITEMS_DB, BARS_ORDER, BARS_DB, ORES_ORDER, ORES_DB, NAME_CASE_MAP, TYPES_MAP = load_database_from_excel()
+except Exception as e:
+    st.error(f"Fout bij het laden van het Excel-bestand 'orecraft_database.xlsx': {e}")
+    st.stop()
 
 # Helper om getallen te formatteren (k / M / B)
 def format_num(val, compact=False):
@@ -144,109 +117,83 @@ def parse_compact_input(val_str):
         return 0
 
 # ---------------------------------------------------------
-# CALCULATION ENGINE (BRUTO EN NETTO HIËRARCHISCH)
+# CALCULATION ENGINE (CASE-INSENSITIVE & RECURSIVE)
 # ---------------------------------------------------------
-def parse_recipe(recipe_str):
-    reqs = {}
-    if not recipe_str:
-        return reqs
-    parts = recipe_str.split('+')
-    for p in parts:
-        p = p.strip()
-        tokens = p.split('x ')
-        if len(tokens) == 2:
-            qty = int(tokens[0].replace(',', '').strip())
-            name_raw = tokens[1].strip()
-            name = NAME_CASE_MAP.get(name_raw.lower(), name_raw)
-            reqs[name] = qty
-    return reqs
+def get_recipe_dict(name):
+    name_lower = name.lower()
+    for k, v in ITEMS_DB.items():
+        if k.lower() == name_lower:
+            return v
+    for k, v in BARS_DB.items():
+        if k.lower() == name_lower:
+            return v
+    return {}
 
 def calculate_requirements(target_name, quantity, inventory):
     gross_items = {}
     gross_bars = {}
     gross_ores = {}
 
-    # 1. PURE BRUTO BEREKENING (Van 0 af aan)
-    def resolve_item_gross(name, qty):
-        gross_items[name] = gross_items.get(name, 0) + qty
-        recipe_str = ITEMS_DB.get(name, "")
-        reqs = parse_recipe(recipe_str)
-        for req_name, req_qty in reqs.items():
+    # 1. BRUTO BEREKENING (Volledig recursief doorrekenen)
+    def resolve_gross(name, qty):
+        recipe = get_recipe_dict(name)
+        for req_raw, req_qty in recipe.items():
+            req_name = NAME_CASE_MAP.get(req_raw.lower(), req_raw)
             tot_qty = req_qty * qty
-            if req_name in ITEMS_DB:
-                resolve_item_gross(req_name, tot_qty)
-            elif req_name in BARS_DB:
-                resolve_bar_gross(req_name, tot_qty)
+            req_type = TYPES_MAP.get(req_name.lower(), "unknown")
+
+            if req_type == "item":
+                gross_items[req_name] = gross_items.get(req_name, 0) + tot_qty
+                resolve_gross(req_name, tot_qty)
+            elif req_type == "bar":
+                gross_bars[req_name] = gross_bars.get(req_name, 0) + tot_qty
+                resolve_gross(req_name, tot_qty)
             else:
                 gross_ores[req_name] = gross_ores.get(req_name, 0) + tot_qty
 
-    def resolve_bar_gross(name, qty):
-        gross_bars[name] = gross_bars.get(name, 0) + qty
-        recipe_str = BARS_DB.get(name, "")
-        reqs = parse_recipe(recipe_str)
-        for req_name, req_qty in reqs.items():
-            tot_qty = req_qty * qty
-            if req_name in BARS_DB:
-                resolve_bar_gross(req_name, tot_qty)
-            else:
-                gross_ores[req_name] = gross_ores.get(req_name, 0) + tot_qty
-
-    # 2. NETTO BEREKENING (Top-Down rekening houdend met tussentijdse voorraad)
+    # 2. NETTO BEREKENING (Top-Down rekening houdend met voorraad)
     net_items = {}
     net_bars = {}
     net_ores = {}
 
-    def resolve_item_net(name, qty_needed):
-        in_stock = inventory.get(name, 0)
-        actual_to_craft = max(0, qty_needed - in_stock)
-        net_items[name] = net_items.get(name, 0) + qty_needed
-        
-        if actual_to_craft > 0:
-            recipe_str = ITEMS_DB.get(name, "")
-            reqs = parse_recipe(recipe_str)
-            for req_name, req_qty in reqs.items():
-                tot_qty = req_qty * actual_to_craft
-                if req_name in ITEMS_DB:
-                    resolve_item_net(req_name, tot_qty)
-                elif req_name in BARS_DB:
-                    resolve_bar_net(req_name, tot_qty)
-                else:
-                    net_ores[req_name] = net_ores.get(req_name, 0) + tot_qty
+    def resolve_net(name, qty_needed):
+        recipe = get_recipe_dict(name)
+        for req_raw, req_qty in recipe.items():
+            req_name = NAME_CASE_MAP.get(req_raw.lower(), req_raw)
+            tot_qty = req_qty * qty_needed
+            req_type = TYPES_MAP.get(req_name.lower(), "unknown")
+            in_stock = inventory.get(req_name, 0)
 
-    def resolve_bar_net(name, qty_needed):
-        in_stock = inventory.get(name, 0)
-        actual_to_smelt = max(0, qty_needed - in_stock)
-        net_bars[name] = net_bars.get(name, 0) + qty_needed
-        
-        if actual_to_smelt > 0:
-            recipe_str = BARS_DB.get(name, "")
-            reqs = parse_recipe(recipe_str)
-            for req_name, req_qty in reqs.items():
-                tot_qty = req_qty * actual_to_smelt
-                if req_name in BARS_DB:
-                    resolve_bar_net(req_name, tot_qty)
-                else:
-                    net_ores[req_name] = net_ores.get(req_name, 0) + tot_qty
+            if req_type == "item":
+                net_items[req_name] = net_items.get(req_name, 0) + tot_qty
+                actual_to_craft = max(0, tot_qty - in_stock)
+                if actual_to_craft > 0:
+                    resolve_net(req_name, actual_to_craft)
+            elif req_type == "bar":
+                net_bars[req_name] = net_bars.get(req_name, 0) + tot_qty
+                actual_to_smelt = max(0, tot_qty - in_stock)
+                if actual_to_smelt > 0:
+                    resolve_net(req_name, actual_to_smelt)
+            else:
+                net_ores[req_name] = net_ores.get(req_name, 0) + tot_qty
 
-    if target_name in ITEMS_DB:
-        resolve_item_gross(target_name, quantity)
-        resolve_item_net(target_name, quantity)
-    elif target_name in BARS_DB:
-        resolve_bar_gross(target_name, quantity)
-        if target_name in gross_bars:
-            del gross_bars[target_name]
-            
-        resolve_bar_net(target_name, quantity)
-        if target_name in net_bars:
-            del net_bars[target_name]
+    resolve_gross(target_name, quantity)
+    resolve_net(target_name, quantity)
 
     return gross_items, gross_bars, gross_ores, net_items, net_bars, net_ores
 
 def sort_by_tier(data_dict, order_list):
     sorted_dict = {}
     for item in order_list:
-        if item in data_dict:
-            sorted_dict[item] = data_dict[item]
+        # Match case-insensitive
+        matched_key = None
+        for k in data_dict.keys():
+            if k.lower() == item.lower():
+                matched_key = k
+                break
+        if matched_key:
+            sorted_dict[matched_key] = data_dict[matched_key]
+
     for k, v in data_dict.items():
         if k not in sorted_dict:
             sorted_dict[k] = v
@@ -255,7 +202,9 @@ def sort_by_tier(data_dict, order_list):
 # ---------------------------------------------------------
 # SESSION STATE INITIALIZATION
 # ---------------------------------------------------------
-DEFAULT_PLACEHOLDER = "-- Selecteer een item of bar --"
+DEFAULT_PLACEHOLDER = " Selecteer een item of bar..."
+HEADER_ITEMS = "📦 --- CRAFTING ITEMS ---"
+HEADER_BARS = "🔥 --- BARS / STAVEN ---"
 
 if "inventory" not in st.session_state:
     st.session_state.inventory = {}
@@ -274,7 +223,6 @@ if "selected_item_qty" not in st.session_state:
 # ---------------------------------------------------------
 st.sidebar.header("🎒 Instellingen & Voorraad")
 
-# Wis voorraad, reset de selectiebox EN reset het aantal te craften naar 1
 if st.sidebar.button("🗑️ Wis Volledige Voorraad", use_container_width=True):
     st.session_state.inventory = {}
     st.session_state.reset_counter += 1
@@ -288,14 +236,27 @@ compact_view = st.sidebar.toggle(
     help="Schakel in om bijvoorbeeld 10.000 als 10k, 1.000.000 als 1M en 1.000.000.000 als 1B weer te geven."
 )
 
-all_options = [DEFAULT_PLACEHOLDER, "--- CRAFTING ITEMS ---"] + ITEMS_ORDER + ["--- BARS / STAVEN ---"] + BARS_ORDER
+# Bouw ingesprongen lijst voor de dropdown met een duidelijke hiërarchie
+options_map = {}
+display_options = [DEFAULT_PLACEHOLDER, HEADER_ITEMS]
+
+for item in ITEMS_ORDER:
+    disp = f"   └─ {item}"
+    display_options.append(disp)
+    options_map[disp] = item
+
+display_options.append(HEADER_BARS)
+for bar in BARS_ORDER:
+    disp = f"   └─ {bar}"
+    display_options.append(disp)
+    options_map[disp] = bar
 
 col_select, col_qty = st.columns([3, 1])
 
 with col_select:
-    selected_option = st.selectbox(
+    selected_disp = st.selectbox(
         "Selecteer het te maken Item of Bar:",
-        options=all_options,
+        options=display_options,
         key="selected_item_choice"
     )
 
@@ -307,16 +268,17 @@ with col_qty:
         key="selected_item_qty"
     )
 
-# Wanneer er geen of een ongeldige optie is geselecteerd, stop het script hier
-if selected_option == DEFAULT_PLACEHOLDER:
+if selected_disp == DEFAULT_PLACEHOLDER:
     st.info("👈 Selecteer bovenaan een item of bar om de ingrediënten te berekenen.")
     st.stop()
 
-if selected_option.startswith("---"):
-    st.warning("Kies a.u.b. een geldig Item of Bar uit de lijst.")
+if selected_disp in [HEADER_ITEMS, HEADER_BARS]:
+    st.warning("⚠️ Je hebt een categoriekop gekozen. Selecteer a.u.b. een specifiek item of bar eronder.")
     st.stop()
 
-# Voer de dynamische top-down berekening uit!
+selected_option = options_map.get(selected_disp, selected_disp)
+
+# Berekening uitvoeren
 g_items, g_bars, g_ores, n_items, n_bars, n_ores = calculate_requirements(
     selected_option, 
     item_quantity, 
@@ -344,8 +306,6 @@ with st.expander("⛏️ Totaal Ertsen (Ores)", expanded=True):
     for ore_name, gross_qty in g_ores.items():
         in_stock = st.session_state.inventory.get(ore_name, 0)
         net_from_recipes = n_ores.get(ore_name, 0)
-        
-        # Trek ook de eigen erts-voorraad af van wat nog vanuit de recepten overbleef
         net_to_mine = max(0, net_from_recipes - in_stock)
         rarity = ORES_DB.get(ore_name, "Onbekend")
         
@@ -420,7 +380,7 @@ with st.expander("🔥 Totaal Staven (Bars)", expanded=True):
         st.info("Geen staven nodig voor deze selectie.")
 
 # 3. TUSSEN-ITEMS / CRAFTING TREE
-with st.expander("📦 Tussen-Items (Crafting Tree)", expanded=False):
+with st.expander("📦 Tussen-Items (Crafting Tree)", expanded=True):
     items_data = []
     for it_name, gross_qty in g_items.items():
         in_stock = st.session_state.inventory.get(it_name, 0)
@@ -456,16 +416,3 @@ with st.expander("📦 Tussen-Items (Crafting Tree)", expanded=False):
                 st.rerun()
     else:
         st.info("Geen tussen-items nodig voor deze selectie.")
-
-# ---------------------------------------------------------
-# DATABASE VIEW
-# ---------------------------------------------------------
-with st.expander("🔍 Bekijk de volledige recepten-database (27 Items, 19 Bars, 18 Ores)"):
-    tab1, tab2, tab3 = st.tabs(["Crafting Items", "Bars", "Ores"])
-    
-    with tab1:
-        st.dataframe(pd.DataFrame(list(ITEMS_DB.items()), columns=["Item Naam", "Receptuur"]), use_container_width=True)
-    with tab2:
-        st.dataframe(pd.DataFrame(list(BARS_DB.items()), columns=["Bar Naam", "Receptuur"]), use_container_width=True)
-    with tab3:
-        st.dataframe(pd.DataFrame(list(ORES_DB.items()), columns=["Ore Naam", "Zeldzaamheid"]), use_container_width=True)
