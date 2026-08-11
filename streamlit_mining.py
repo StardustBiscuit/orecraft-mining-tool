@@ -255,20 +255,31 @@ def sort_by_tier(data_dict, order_list):
 # ---------------------------------------------------------
 # SESSION STATE INITIALIZATION
 # ---------------------------------------------------------
+DEFAULT_PLACEHOLDER = "-- Selecteer een item of bar --"
+
 if "inventory" not in st.session_state:
     st.session_state.inventory = {}
 
 if "reset_counter" not in st.session_state:
     st.session_state.reset_counter = 0
 
+if "selected_item_choice" not in st.session_state:
+    st.session_state.selected_item_choice = DEFAULT_PLACEHOLDER
+
+if "selected_item_qty" not in st.session_state:
+    st.session_state.selected_item_qty = 1
+
 # ---------------------------------------------------------
 # USER INTERFACE / CONTROLS
 # ---------------------------------------------------------
 st.sidebar.header("🎒 Instellingen & Voorraad")
 
+# Wis voorraad, reset de selectiebox EN reset het aantal te craften naar 1
 if st.sidebar.button("🗑️ Wis Volledige Voorraad", use_container_width=True):
     st.session_state.inventory = {}
     st.session_state.reset_counter += 1
+    st.session_state.selected_item_choice = DEFAULT_PLACEHOLDER
+    st.session_state.selected_item_qty = 1
     st.rerun()
 
 compact_view = st.sidebar.toggle(
@@ -277,7 +288,7 @@ compact_view = st.sidebar.toggle(
     help="Schakel in om bijvoorbeeld 10.000 als 10k, 1.000.000 als 1M en 1.000.000.000 als 1B weer te geven."
 )
 
-all_options = ["--- CRAFTING ITEMS ---"] + ITEMS_ORDER + ["--- BARS / STAVEN ---"] + BARS_ORDER
+all_options = [DEFAULT_PLACEHOLDER, "--- CRAFTING ITEMS ---"] + ITEMS_ORDER + ["--- BARS / STAVEN ---"] + BARS_ORDER
 
 col_select, col_qty = st.columns([3, 1])
 
@@ -285,7 +296,6 @@ with col_select:
     selected_option = st.selectbox(
         "Selecteer het te maken Item of Bar:",
         options=all_options,
-        index=3,  # Standaard 'Battle axe'
         key="selected_item_choice"
     )
 
@@ -293,10 +303,14 @@ with col_qty:
     item_quantity = st.number_input(
         "Aantal te craften:",
         min_value=1,
-        value=1,
         step=1,
         key="selected_item_qty"
     )
+
+# Wanneer er geen of een ongeldige optie is geselecteerd, stop het script hier
+if selected_option == DEFAULT_PLACEHOLDER:
+    st.info("👈 Selecteer bovenaan een item of bar om de ingrediënten te berekenen.")
+    st.stop()
 
 if selected_option.startswith("---"):
     st.warning("Kies a.u.b. een geldig Item of Bar uit de lijst.")
