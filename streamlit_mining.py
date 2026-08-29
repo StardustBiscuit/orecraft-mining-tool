@@ -23,7 +23,7 @@ def load_database_from_excel(file_path="orecraft_database.xlsx"):
     df.columns = [str(c).strip().lower() for c in df.columns]
     
     # Identify meta columns and ingredient columns
-    meta_cols = ["type", "naam", "zeldzaamheid"]
+    meta_cols = ["type", "name", "rarity"]
     ingredient_cols = [c for c in df.columns if c not in meta_cols]
     
     items_order = []
@@ -39,7 +39,7 @@ def load_database_from_excel(file_path="orecraft_database.xlsx"):
     
     for _, row in df.iterrows():
         row_type = str(row["type"]).strip().lower()
-        item_name = str(row["naam"]).strip()
+        item_name = str(row["name"]).strip()
         types_map[item_name.lower()] = row_type
         
         # Build recipe dictionary from matrix columns (>0)
@@ -59,7 +59,7 @@ def load_database_from_excel(file_path="orecraft_database.xlsx"):
             
         elif row_type == "ore":
             ores_order.append(item_name)
-            rarity = str(row["zeldzaamheid"]).strip() if pd.notna(row["zeldzaamheid"]) else "Onbekend"
+            rarity = str(row["rarity"]).strip() if pd.notna(row["rarity"]) else "Onbekend"
             ores_db[item_name] = rarity
 
     # Mapping for case-insensitive lookup
@@ -202,9 +202,9 @@ def sort_by_tier(data_dict, order_list):
 # ---------------------------------------------------------
 # SESSION STATE INITIALIZATION
 # ---------------------------------------------------------
-DEFAULT_PLACEHOLDER = " Selecteer een item of bar..."
+DEFAULT_PLACEHOLDER = " Select item of bar..."
 HEADER_ITEMS = "📦 --- CRAFTING ITEMS ---"
-HEADER_BARS = "🔥 --- BARS / STAVEN ---"
+HEADER_BARS = "🔥 --- BARS ---"
 
 if "inventory" not in st.session_state:
     st.session_state.inventory = {}
@@ -221,9 +221,9 @@ if "selected_item_qty" not in st.session_state:
 # ---------------------------------------------------------
 # USER INTERFACE / CONTROLS
 # ---------------------------------------------------------
-st.sidebar.header("🎒 Instellingen & Voorraad")
+st.sidebar.header("🎒 Settings & Inventory")
 
-if st.sidebar.button("🗑️ Wis Volledige Voorraad", use_container_width=True):
+if st.sidebar.button("🗑️ Reset Inventory", use_container_width=True):
     st.session_state.inventory = {}
     st.session_state.reset_counter += 1
     st.session_state.selected_item_choice = DEFAULT_PLACEHOLDER
@@ -231,7 +231,7 @@ if st.sidebar.button("🗑️ Wis Volledige Voorraad", use_container_width=True)
     st.rerun()
 
 compact_view = st.sidebar.toggle(
-    "Compacte getallenweergave",
+    "Compact unit display",
     value=False,
     help="Schakel in om bijvoorbeeld 10.000 als 10k, 1.000.000 als 1M en 1.000.000.000 als 1B weer te geven."
 )
