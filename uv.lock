@@ -302,6 +302,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "streamlit" },
+    { name = "streamlit-local-storage" },
 ]
 
 [package.metadata]
@@ -309,6 +310,7 @@ requires-dist = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "streamlit", specifier = ">=1.61.1" },
+    { name = "streamlit-local-storage" },
 ]
 
 [[package]]
@@ -587,6 +589,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ad/4a/6d0bf2f78de59924564caf47298341c09f61bf3814f15f0d15ef09fe1e3d/streamlit-1.61.1.tar.gz", hash = "sha256:68acf1ff1b6005b19205c2777d832deea0c1edd6fbbf7f43f091b96220e5e35f", size = 9907073, upload-time = "2026-08-05T14:51:01.956Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/e3/deeea39117e1ffbce29755b45bceb214692e0a0aa496a17ce742b98ef3e1/streamlit-1.61.1-py3-none-any.whl", hash = "sha256:3f0ebf6764c3f938f8107414c9533942fa85a84b57affdaa7727d562210d8ece", size = 10512871, upload-time = "2026-08-05T14:50:59.246Z" },
+]
+
+[[package]]
+name = "streamlit-local-storage"
+version = "0.0.25"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "streamlit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/ad/5e92a9355c2f32c162f0e2a2262b90697385edf0fe64bc66a27eb652ac95/streamlit_local_storage-0.0.25.tar.gz", hash = "sha256:9b7c3e8ae7c14a68b47c980b167306181292213736dfa71850c8d3204dc2a9cd", size = 538392, upload-time = "2024-11-18T16:22:09.432Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/a6/502b00b6db10c3d467ec57d822d6647a35f0328ef03668aa5b6dd160f966/streamlit_local_storage-0.0.25-py3-none-any.whl", hash = "sha256:0ef85618ed8c44f347b7acffb2d104da5b6915e6a4e24612f12a4d2cc355b951", size = 543746, upload-time = "2024-11-18T16:22:07.305Z" },
 ]
 
 [[package]]

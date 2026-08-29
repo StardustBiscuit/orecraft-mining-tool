@@ -1,16 +1,18 @@
 import streamlit as st
 import pandas as pd
+import json
+import base64
 
 # ---------------------------------------------------------
 # PAGE CONFIGURATION
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Orecraft Rekentool",
+    page_title="Orecraft Mining Tool",
     page_icon="⚒️",
     layout="wide"
 )
 
-st.title("⚒️ Orecraft Miningtool ⚒️")
+st.title("⚒️ Orecraft Mining Tool ⚒️")
 
 # ---------------------------------------------------------
 # DATA LOADING FROM EXCEL (MATRIX STRUCTURE)
@@ -59,7 +61,7 @@ def load_database_from_excel(file_path="orecraft_database.xlsx"):
             
         elif row_type == "ore":
             ores_order.append(item_name)
-            rarity = str(row["rarity"]).strip() if pd.notna(row["rarity"]) else "Onbekend"
+            rarity = str(row["rarity"]).strip() if pd.notna(row["rarity"]) else "Unknown"
             ores_db[item_name] = rarity
 
     # Mapping for case-insensitive lookup
@@ -72,25 +74,25 @@ def load_database_from_excel(file_path="orecraft_database.xlsx"):
 try:
     ITEMS_ORDER, ITEMS_DB, BARS_ORDER, BARS_DB, ORES_ORDER, ORES_DB, NAME_CASE_MAP, TYPES_MAP = load_database_from_excel()
 except Exception as e:
-    st.error(f"Fout bij het laden van het Excel-bestand 'orecraft_database.xlsx': {e}")
+    st.error(f"Error loading the Excel file 'orecraft_database.xlsx': {e}")
     st.stop()
 
-# Helper om getallen te formatteren (k / M / B)
+# Helper to format numbers (k / M / B)
 def format_num(val, compact=False):
     if not compact or not isinstance(val, (int, float)):
         return str(val) if isinstance(val, (int, float)) else val
     if val >= 1_000_000_000:
         res = f"{val / 1_000_000_000:.1f}".rstrip('0').rstrip('.')
-        return f"{res.replace('.', ',')}B"
+        return f"{res}B"
     elif val >= 1_000_000:
         res = f"{val / 1_000_000:.1f}".rstrip('0').rstrip('.')
-        return f"{res.replace('.', ',')}M"
+        return f"{res}M"
     elif val >= 1_000:
         res = f"{val / 1_000:.1f}".rstrip('0').rstrip('.')
-        return f"{res.replace('.', ',')}k"
+        return f"{res}k"
     return str(val)
 
-# Helper om handmatige tekstinvoer om te zetten naar getal
+# Helper to parse manual text input to numeric values
 def parse_compact_input(val_str):
     if isinstance(val_str, (int, float)):
         return int(val_str)
@@ -134,7 +136,7 @@ def calculate_requirements(target_name, quantity, inventory):
     gross_bars = {}
     gross_ores = {}
 
-    # 1. BRUTO BEREKENING (Volledig recursief doorrekenen)
+    # 1. GROSS CALCULATION (Fully recursive)
     def resolve_gross(name, qty):
         recipe = get_recipe_dict(name)
         for req_raw, req_qty in recipe.items():
@@ -151,7 +153,7 @@ def calculate_requirements(target_name, quantity, inventory):
             else:
                 gross_ores[req_name] = gross_ores.get(req_name, 0) + tot_qty
 
-    # 2. NETTO BEREKENING (Top-Down rekening houdend met voorraad)
+    # 2. NET CALCULATION (Top-Down considering existing inventory)
     net_items = {}
     net_bars = {}
     net_ores = {}
@@ -185,7 +187,6 @@ def calculate_requirements(target_name, quantity, inventory):
 def sort_by_tier(data_dict, order_list):
     sorted_dict = {}
     for item in order_list:
-        # Match case-insensitive
         matched_key = None
         for k in data_dict.keys():
             if k.lower() == item.lower():
@@ -200,43 +201,70 @@ def sort_by_tier(data_dict, order_list):
     return sorted_dict
 
 # ---------------------------------------------------------
-# SESSION STATE INITIALIZATION
+# PERSISTENT STORAGE MANAGEMENT (URL PARAMETERS)
 # ---------------------------------------------------------
-DEFAULT_PLACEHOLDER = " Select item of bar..."
+DEFAULT_PLACEHOLDER = " Select item or bar..."
 HEADER_ITEMS = "📦 --- CRAFTING ITEMS ---"
 HEADER_BARS = "🔥 --- BARS ---"
 
-if "inventory" not in st.session_state:
-    st.session_state.inventory = {}
+# Load initial state from browser URL params on reload/F5
+query_params = st.query_params
+
+if "initialized" not in st.session_state:
+    st.session_state.initialized = True
+    
+    # Restore inventory
+    if "data" in query_params:
+        try:
+            decoded = base64.b64decode(query_params["data"].encode()).decode()
+            st.session_state.inventory = json.loads(decoded)
+        except Exception:
+            st.session_state.inventory = {}
+    else:
+        st.session_state.inventory = {}
+
+    # Restore item selection
+    if "choice" in query_params:
+        st.session_state.selected_item_choice = query_params["choice"]
+    else:
+        st.session_state.selected_item_choice = DEFAULT_PLACEHOLDER
+
+    # Restore quantity
+    if "qty" in query_params and query_params["qty"].isdigit():
+        st.session_state.selected_item_qty = int(query_params["qty"])
+    else:
+        st.session_state.selected_item_qty = 1
 
 if "reset_counter" not in st.session_state:
     st.session_state.reset_counter = 0
 
-if "selected_item_choice" not in st.session_state:
-    st.session_state.selected_item_choice = DEFAULT_PLACEHOLDER
-
-if "selected_item_qty" not in st.session_state:
-    st.session_state.selected_item_qty = 1
+def sync_state_to_url():
+    """Sync session state into browser URL query parameters."""
+    encoded_inv = base64.b64encode(json.dumps(st.session_state.inventory).encode()).decode()
+    st.query_params["data"] = encoded_inv
+    st.query_params["choice"] = st.session_state.selected_item_choice
+    st.query_params["qty"] = str(st.session_state.selected_item_qty)
 
 # ---------------------------------------------------------
 # USER INTERFACE / CONTROLS
 # ---------------------------------------------------------
 st.sidebar.header("🎒 Settings & Inventory")
 
-if st.sidebar.button("🗑️ Reset Inventory", use_container_width=True):
+if st.sidebar.button("🗑️ Reset Inventory", width="stretch"):
     st.session_state.inventory = {}
     st.session_state.reset_counter += 1
     st.session_state.selected_item_choice = DEFAULT_PLACEHOLDER
     st.session_state.selected_item_qty = 1
+    st.query_params.clear()
     st.rerun()
 
 compact_view = st.sidebar.toggle(
     "Compact unit display",
     value=False,
-    help="Schakel in om bijvoorbeeld 10.000 als 10k, 1.000.000 als 1M en 1.000.000.000 als 1B weer te geven."
+    help="Enable to display values like 10,000 as 10k, 1,000,000 as 1M, and 1,000,000,000 as 1B."
 )
 
-# Bouw ingesprongen lijst voor de dropdown met een duidelijke hiërarchie
+# Build dropdown options
 options_map = {}
 display_options = [DEFAULT_PLACEHOLDER, HEADER_ITEMS]
 
@@ -255,44 +283,46 @@ col_select, col_qty = st.columns([3, 1])
 
 with col_select:
     selected_disp = st.selectbox(
-        "Selecteer het te maken Item of Bar:",
+        "Select the Item or Bar to craft:",
         options=display_options,
-        key="selected_item_choice"
+        key="selected_item_choice",
+        on_change=sync_state_to_url
     )
 
 with col_qty:
     item_quantity = st.number_input(
-        "Aantal te craften:",
+        "Amount to craft:",
         min_value=1,
         step=1,
-        key="selected_item_qty"
+        key="selected_item_qty",
+        on_change=sync_state_to_url
     )
 
 if selected_disp == DEFAULT_PLACEHOLDER:
-    st.info("👈 Selecteer bovenaan een item of bar om de ingrediënten te berekenen.")
+    st.info("👈 Please select an item or bar at the top to calculate required ingredients.")
     st.stop()
 
 if selected_disp in [HEADER_ITEMS, HEADER_BARS]:
-    st.warning("⚠️ Je hebt een categoriekop gekozen. Selecteer a.u.b. een specifiek item of bar eronder.")
+    st.warning("⚠️ You have selected a category header. Please select a specific item or bar below it.")
     st.stop()
 
 selected_option = options_map.get(selected_disp, selected_disp)
 
-# Berekening uitvoeren
+# Execute calculation
 g_items, g_bars, g_ores, n_items, n_bars, n_ores = calculate_requirements(
     selected_option, 
     item_quantity, 
     st.session_state.inventory
 )
 
-# Sorteer op Tier
+# Sort by Tier
 g_items = sort_by_tier(g_items, ITEMS_ORDER)
 g_bars = sort_by_tier(g_bars, BARS_ORDER)
 g_ores = sort_by_tier(g_ores, ORES_ORDER)
 
 st.markdown("---")
-st.header(f"Berekening voor {item_quantity}x {selected_option}")
-st.info("💡 **Tip:** Vul je voorraad in bij tussen-items of staven; de benodigde ertsen worden automatisch mee verlaagd!")
+st.header(f"Calculation for {item_quantity}x {selected_option}")
+st.info("💡 **Tip:** Enter your existing stock for intermediate items or bars; the required ores will automatically adjust!")
 
 cnt = st.session_state.reset_counter
 
@@ -300,21 +330,21 @@ cnt = st.session_state.reset_counter
 # INTERACTIVE DATA EDITORS FOR RESULTS
 # ---------------------------------------------------------
 
-# 1. ERTSEN / ORES
-with st.expander("⛏️ Totaal Ertsen (Ores)", expanded=True):
+# 1. ORES
+with st.expander("⛏️ Total Ores", expanded=True):
     ores_data = []
     for ore_name, gross_qty in g_ores.items():
         in_stock = st.session_state.inventory.get(ore_name, 0)
         net_from_recipes = n_ores.get(ore_name, 0)
         net_to_mine = max(0, net_from_recipes - in_stock)
-        rarity = ORES_DB.get(ore_name, "Onbekend")
+        rarity = ORES_DB.get(ore_name, "Unknown")
         
         ores_data.append({
-            "Ore Naam": ore_name,
-            "Bruto Nodig": format_num(gross_qty, compact_view),
-            "In Voorraad ✏️": format_num(in_stock, compact_view),
-            "Netto Nog Mijnen": format_num(net_to_mine, compact_view),
-            "Zeldzaamheid": rarity
+            "Ore Name": ore_name,
+            "Gross Needed": format_num(gross_qty, compact_view),
+            "In Stock ✏️": format_num(in_stock, compact_view),
+            "Net Still to Mine": format_num(net_to_mine, compact_view),
+            "Rarity": rarity
         })
     
     if ores_data:
@@ -322,27 +352,28 @@ with st.expander("⛏️ Totaal Ertsen (Ores)", expanded=True):
         edited_ores = st.data_editor(
             ores_df,
             column_config={
-                "Ore Naam": st.column_config.TextColumn(disabled=True),
-                "Bruto Nodig": st.column_config.TextColumn(disabled=True),
-                "In Voorraad ✏️": st.column_config.TextColumn(disabled=False),
-                "Netto Nog Mijnen": st.column_config.TextColumn(disabled=True),
-                "Zeldzaamheid": st.column_config.TextColumn(disabled=True),
+                "Ore Name": st.column_config.TextColumn(disabled=True),
+                "Gross Needed": st.column_config.TextColumn(disabled=True),
+                "In Stock ✏️": st.column_config.TextColumn(disabled=False),
+                "Net Still to Mine": st.column_config.TextColumn(disabled=True),
+                "Rarity": st.column_config.TextColumn(disabled=True),
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             key=f"editor_ores_{cnt}"
         )
         for _, row in edited_ores.iterrows():
-            name = row["Ore Naam"]
-            parsed_val = parse_compact_input(row["In Voorraad ✏️"])
+            name = row["Ore Name"]
+            parsed_val = parse_compact_input(row["In Stock ✏️"])
             if st.session_state.inventory.get(name, 0) != parsed_val:
                 st.session_state.inventory[name] = parsed_val
+                sync_state_to_url()
                 st.rerun()
     else:
-        st.info("Geen ertsen nodig voor deze selectie.")
+        st.info("No ores required for this selection.")
 
-# 2. STAVEN / BARS
-with st.expander("🔥 Totaal Staven (Bars)", expanded=True):
+# 2. BARS
+with st.expander("🔥 Total Bars", expanded=True):
     bars_data = []
     for bar_name, gross_qty in g_bars.items():
         in_stock = st.session_state.inventory.get(bar_name, 0)
@@ -350,10 +381,10 @@ with st.expander("🔥 Totaal Staven (Bars)", expanded=True):
         net_to_smelt = max(0, net_needed_base - in_stock)
         
         bars_data.append({
-            "Bar Naam": bar_name,
-            "Bruto Nodig": format_num(gross_qty, compact_view),
-            "In Voorraad ✏️": format_num(in_stock, compact_view),
-            "Netto Nog Smelten": format_num(net_to_smelt, compact_view)
+            "Bar Name": bar_name,
+            "Gross Needed": format_num(gross_qty, compact_view),
+            "In Stock ✏️": format_num(in_stock, compact_view),
+            "Net Still to Smelt": format_num(net_to_smelt, compact_view)
         })
     
     if bars_data:
@@ -361,26 +392,27 @@ with st.expander("🔥 Totaal Staven (Bars)", expanded=True):
         edited_bars = st.data_editor(
             bars_df,
             column_config={
-                "Bar Naam": st.column_config.TextColumn(disabled=True),
-                "Bruto Nodig": st.column_config.TextColumn(disabled=True),
-                "In Voorraad ✏️": st.column_config.TextColumn(disabled=False),
-                "Netto Nog Smelten": st.column_config.TextColumn(disabled=True),
+                "Bar Name": st.column_config.TextColumn(disabled=True),
+                "Gross Needed": st.column_config.TextColumn(disabled=True),
+                "In Stock ✏️": st.column_config.TextColumn(disabled=False),
+                "Net Still to Smelt": st.column_config.TextColumn(disabled=True),
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             key=f"editor_bars_{cnt}"
         )
         for _, row in edited_bars.iterrows():
-            name = row["Bar Naam"]
-            parsed_val = parse_compact_input(row["In Voorraad ✏️"])
+            name = row["Bar Name"]
+            parsed_val = parse_compact_input(row["In Stock ✏️"])
             if st.session_state.inventory.get(name, 0) != parsed_val:
                 st.session_state.inventory[name] = parsed_val
+                sync_state_to_url()
                 st.rerun()
     else:
-        st.info("Geen staven nodig voor deze selectie.")
+        st.info("No bars required for this selection.")
 
-# 3. TUSSEN-ITEMS / CRAFTING TREE
-with st.expander("📦 Tussen-Items (Crafting Tree)", expanded=True):
+# 3. INTERMEDIATE ITEMS / CRAFTING TREE
+with st.expander("📦 Intermediate Items (Crafting Tree)", expanded=True):
     items_data = []
     for it_name, gross_qty in g_items.items():
         in_stock = st.session_state.inventory.get(it_name, 0)
@@ -388,10 +420,10 @@ with st.expander("📦 Tussen-Items (Crafting Tree)", expanded=True):
         net_to_craft = max(0, net_needed_base - in_stock)
         
         items_data.append({
-            "Item Naam": it_name,
-            "Bruto Nodig": format_num(gross_qty, compact_view),
-            "In Voorraad ✏️": format_num(in_stock, compact_view),
-            "Netto Nog Craften": format_num(net_to_craft, compact_view)
+            "Item Name": it_name,
+            "Gross Needed": format_num(gross_qty, compact_view),
+            "In Stock ✏️": format_num(in_stock, compact_view),
+            "Net Still to Craft": format_num(net_to_craft, compact_view)
         })
     
     if items_data:
@@ -399,20 +431,21 @@ with st.expander("📦 Tussen-Items (Crafting Tree)", expanded=True):
         edited_items = st.data_editor(
             items_df,
             column_config={
-                "Item Naam": st.column_config.TextColumn(disabled=True),
-                "Bruto Nodig": st.column_config.TextColumn(disabled=True),
-                "In Voorraad ✏️": st.column_config.TextColumn(disabled=False),
-                "Netto Nog Craften": st.column_config.TextColumn(disabled=True),
+                "Item Name": st.column_config.TextColumn(disabled=True),
+                "Gross Needed": st.column_config.TextColumn(disabled=True),
+                "In Stock ✏️": st.column_config.TextColumn(disabled=False),
+                "Net Still to Craft": st.column_config.TextColumn(disabled=True),
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             key=f"editor_items_{cnt}"
         )
         for _, row in edited_items.iterrows():
-            name = row["Item Naam"]
-            parsed_val = parse_compact_input(row["In Voorraad ✏️"])
+            name = row["Item Name"]
+            parsed_val = parse_compact_input(row["In Stock ✏️"])
             if st.session_state.inventory.get(name, 0) != parsed_val:
                 st.session_state.inventory[name] = parsed_val
+                sync_state_to_url()
                 st.rerun()
     else:
-        st.info("Geen tussen-items nodig voor deze selectie.")
+        st.info("No intermediate items required for this selection.")
